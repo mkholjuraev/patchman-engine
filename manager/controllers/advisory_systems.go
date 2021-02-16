@@ -48,21 +48,16 @@ func AdvisorySystemsListHandler(c *gin.Context) {
 	account := c.GetInt(middlewares.KeyAccount)
 
 	advisoryName := c.Param("advisory_id")
+
 	if advisoryName == "" {
 		c.JSON(http.StatusBadRequest, utils.ErrorResponse{Error: "advisory_id param not found"})
 		return
 	}
 
-	var exists int
-	err := database.Db.Model(&models.AdvisoryMetadata{}).
-		Where("name = ? ", advisoryName).Count(&exists).Error
+	err := doesAdvisoryExist(c, advisoryName)
 	if err != nil {
-		LogAndRespError(c, err, "database error")
-	}
-	if exists == 0 {
-		LogAndRespNotFound(c, errors.New("System not found"), "Systems not found")
 		return
-	}
+	} // Error handled in method itself
 
 	query := buildQuery(account, advisoryName)
 	query, _, err = ApplyTagsFilter(c, query, "sp.inventory_id")
@@ -113,4 +108,20 @@ func buildAdvisorySystemsData(dbItems []SystemDBLookup) []SystemItem {
 		data[i] = item
 	}
 	return data
+}
+
+func doesAdvisoryExist(c *gin.Context, advisoryName string) error {
+
+	var exists int
+	err := database.Db.Model(&models.AdvisoryMetadata{}).
+		Where("name = ? ", advisoryName).Count(&exists).Error
+	if err != nil {
+		LogAndRespError(c, err, "database error")
+	}
+	if exists == 0 {
+		LogAndRespNotFound(c, errors.New("System not found"), "Systems not found")
+		return nil
+	}
+
+	return err
 }

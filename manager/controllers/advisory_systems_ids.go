@@ -2,19 +2,28 @@ package controllers
 
 import (
 	"app/base/database"
-	"app/base/models"
 	"app/base/utils"
 	"app/manager/middlewares"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/pkg/errors"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
+var AdvisorySystemsIdsFields = database.MustGetQueryAttrs(&SystemDBLookupForIds{})
+var AdvisorySystemsIdsSelect = database.MustGetSelect(&SystemDBLookupForIds{})
+
+type SystemDBLookupForIds struct {
+	ID string `query:"sp.inventory_id"`
+}
+type SystemItemForIds struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
 type AdvisorySystemsIdsResponse struct {
-	Data  []SystemItem `json:"data"`
-	Links Links        `json:"links"`
-	Meta  ListMeta     `json:"meta"`
+	Data  []SystemItemForIds `json:"data"`
+	Links Links              `json:"links"`
+	Meta  ListMeta           `json:"meta"`
 }
 
 // nolint: lll
@@ -43,37 +52,58 @@ type AdvisorySystemsIdsResponse struct {
 // @Success 200 {object} AdvisorySystemsIdsResponse
 // @Router /api/patch/v1/advisories/{advisory_id}/ids [get]
 
-func AdvisorySystemsIdsHandler(c *gin.Context){
-	var dbItems = buildHandler(c)
+func AdvisorySystemsIdsHandler(c *gin.Context) {
+	account := c.GetInt(middlewares.KeyAccount)
 
-	data := buildAdvisorySystemsIdsData(dbItems)
+	advisoryName := c.Param("advisory_id")
+
+	if advisoryName == "" {
+		c.JSON(http.StatusBadRequest, utils.ErrorResponse{Error: "advisory_id param not found"})
+		return
+	}
+
+	error := doesAdvisoryExist(c, advisoryName)
+	if error != nil {
+		return
+	} // Error handled in method itself
+
+	query := database.SystemAdvisories(database.Db, account).
+		Select(AdvisorySystemsIdsSelect).
+		Joins("JOIN advisory_metadata am ON am.id = sa.advisory_id").
+		Joins("JOIN inventory.hosts ih ON ih.id = sp.inventory_id").
+		Where("am.name = ?", advisoryName).
+		Where("sp.stale = false")
+
+	query, _, error = ApplyTagsFilter(c, query, "sp.inventory_id")
+	if error != nil {
+		return
+	} // Error handled in method itself
+	path := fmt.Sprintf("/api/patch/v1/advisories/%v/systems", advisoryName)
+	query, meta, links, err := ListCommon(query, c, path, SystemOpts)
+	if err != nil {
+		return
+	} // Error handled in method itself
+
+	var dbItems []SystemDBLookupForIds
+
+	if err = query.Scan(&dbItems).Error; err != nil {
+		LogAndRespError(c, err, "database error")
+		return
+	}
+
+	data := make([]SystemItemForIds, len(dbItems))
+	for i, model := range dbItems {
+		item := SystemItemForIds{
+			ID:   model.ID,
+			Type: "system",
+		}
+		data[i] = item
+	}
+
 	var resp = AdvisorySystemsIdsResponse{
 		Data:  data,
 		Links: *links,
 		Meta:  *meta,
 	}
 	c.JSON(http.StatusOK, &resp)
-}
-
-// func buildQuery(account int, advisoryName string) *gorm.DB {
-// 	query := database.SystemAdvisories(database.Db, account).
-// 		Select(SystemsSelect).
-// 		Joins("JOIN advisory_metadata am ON am.id = sa.advisory_id").
-// 		Joins("JOIN inventory.hosts ih ON ih.id = sp.inventory_id").
-// 		Where("am.name = ?", advisoryName).
-// 		Where("sp.stale = false")
-
-// 	return query
-// }
-
-func buildAdvisorySystemsIdsData(dbItems []SystemDBLookup) []SystemItem {
-	data := make([]SystemItem, len(dbItems))
-	for i, model := range dbItems {
-		item := SystemItem{
-			ID:         model.ID,
-			Type:       "system",
-		}
-		data[i] = item
-	}
-	return data
 }

@@ -3,6 +3,7 @@ package routes
 import (
 	"app/manager/controllers"
 	"app/manager/middlewares"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,7 +14,7 @@ func InitAPI(api *gin.RouterGroup) {
 	advisories := api.Group("/advisories")
 	advisories.GET("/", controllers.AdvisoriesListHandler)
 	advisories.GET("/:advisory_id", controllers.AdvisoryDetailHandler)
-	advisories.GET("/:advisory_id/ids", controllers.AdvisorySystemsIdsHandler)
+	advisories.GET("/:advisory_id/system_ids", controllers.AdvisorySystemsIdsHandler)
 	advisories.GET("/:advisory_id/systems", controllers.AdvisorySystemsListHandler)
 
 	systems := api.Group("/systems")
